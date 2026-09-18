@@ -1,6 +1,6 @@
 {
   "name": "dsh-usage-stats",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Harness token-usage report: provider-reported tokens folded out of this harness's session logs, backed by a grow-only per-session ledger so deleting a session no longer deletes its usage",
   "type": "module",
@@ -42,7 +42,6 @@
     "verify:retention": "node scripts/verify-retention.mjs",
     "verify:host": "node scripts/verify-host.mjs",
     "verify:client": "node scripts/verify-client.mjs",
-    "prepare": "node scripts/build.mjs",
     "pack": "node scripts/build.mjs && npm pack"
   }
 }

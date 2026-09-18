@@ -44,31 +44,27 @@ $DSH_HOME/storages/dsh-usage-stats/usage-ledger.json
 | 项 | 值 |
 |---|---|
 | 包名 | `dsh-usage-stats` |
+| 版本 | `0.3.1` |
 | dsh 基线 | `0.1.6-alpha.1` |
-| 源码 | 本仓库（`github.com/HaydenSmith1121/dsh-usage-stats`） |
-| 分发 | 由集合仓库 [dsh-plugin-collection](https://github.com/HaydenSmith1121/dsh-plugin-collection) 托管 tarball |
+| 源码 **与分发** | 本仓库（`github.com/HaydenSmith1121/dsh-usage-stats`） |
 
-**方式 A（推荐）**：装一次插件市场面板（`dsh-plugins-market`），在左侧「插件市场」里点安装。
+**方式 A（推荐，也是以后的默认路径）**：装一次插件市场面板（`dsh-plugins-market`），
+在左侧「插件市场」里点安装。市场里的这一条就是本仓库的 `github:` 规格 ——
+**不经过任何中间产物仓库**（`dsh-plugin-collection` 已停止维护、将被丢弃）。
 
-**方式 B（手动）**：从集合仓库下载 tarball，核对 sha256，再装：
-
-```powershell
-# Windows（PowerShell）
-Invoke-WebRequest -Uri <tarball 的 raw 地址> -OutFile $env:TEMP\dsh-usage-stats-0.3.0.tgz
-(Get-FileHash $env:TEMP\dsh-usage-stats-0.3.0.tgz -Algorithm SHA256).Hash.ToLower()
-dsh plugin --profile web add $env:TEMP\dsh-usage-stats-0.3.0.tgz
-```
+**方式 B（手动，等价）**：直接从本仓库安装：
 
 ```bash
-# macOS / Linux
-curl -fL -o /tmp/dsh-usage-stats-0.3.0.tgz <tarball 的 raw 地址>
-sha256sum /tmp/dsh-usage-stats-0.3.0.tgz      # macOS 用 shasum -a 256
-dsh plugin --profile web add /tmp/dsh-usage-stats-0.3.0.tgz
+dsh plugin --profile web add github:HaydenSmith1121/dsh-usage-stats
 ```
 
-> 具体的 tarball 地址与 sha256 以集合仓库
-> [`plugins/dsh-usage-stats/`](https://github.com/HaydenSmith1121/dsh-plugin-collection)
-> 与 `manifest.json` 为准 —— 那里记的才是被验证过的字节。
+> `lib/`（构建产物）是**提交进仓库的**，所以 git 安装不需要跑任何构建脚本 ——
+> 本包也**故意没有 `prepare`**：有它的话 pnpm 10+ 会以
+> `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 拦下安装，逼每个用户手改 `allowBuilds`
+> （0.3.1 修的就是这个）。要自己从源码打包：`npm run pack`。
+
+**方式 C（离线 tarball）**：`npm run pack` 自己打一个，或从可信副本取 —— 装法同上，
+把参数换成 `.tgz` 的绝对路径。
 
 **装完重启 `dsh web`**：设置页是客户端半，重启后立刻出现；**读会话日志并维护台账的路由
 由宿主半注册，只在启动时加载** —— 重启之前页面会明说这一点，而不是给一个裸 404。
@@ -150,7 +146,10 @@ dsh web        # 重启
 想清空统计：删掉 `$DSH_HOME/storages/dsh-usage-stats/`（整目录或那一个 json），
 下次扫描会以当前在场的会话日志为基线重建 —— 报告会随之下降，这是预期行为。
 
-回滚到旧版：装回集合仓库里上一版即可，本插件不迁移、不改写任何 DSH 数据。
+回滚到旧版：`dsh plugin --profile web add <上一版的 tarball>` 即可 ——
+本插件不迁移、不改写任何 DSH 数据，所以降级只是换回旧代码，台账原样留着（旧版不认识它，忽略）。
+（`dsh-plugin-collection` 停止维护后，0.3.0 及更早的 tarball 不再有公开托管点；
+需要旧版就 `git checkout 0.3.0 的提交 && npm run pack` 自己打一个。）
 
 > ⚠️ **与 `dsh-workbuddy-quota` 的关系**：本包是它的继任者（改名 + 只保留用量统计）。
 > 两者**不要同时装** —— 它们注册的设置分区 id 不同（`usage-stats` / `token-usage`），

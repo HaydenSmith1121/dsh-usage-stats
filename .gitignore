@@ -1,0 +1,10 @@
+# Verification scratch space (created and removed by the verify scripts)
+.tmp-verify/
+
+# npm pack output
+*.tgz
+
+# Editor / OS noise
+node_modules/
+.DS_Store
+Thumbs.db

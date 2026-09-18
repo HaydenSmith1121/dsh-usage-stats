@@ -1,0 +1,13 @@
+# Register the token-usage overlay.
+#
+# One read-only responsibility: the "Token usage" settings page, served by this
+# plugin's own host half at /plugins/dsh-usage-stats/usage, which folds this
+# harness's session logs into per-day, per-route totals and keeps a grow-only
+# backup of those totals so deleting a session does not delete its usage.
+#
+# It does not touch any provider, does not reconfigure model routing, and holds
+# no credential. The only thing it writes is its own ledger under
+# $DSH_HOME/storages/dsh-usage-stats/.
+- insert:
+    - id: usage-stats
+      name: dsh-usage-stats

@@ -10,7 +10,7 @@
  * independent fold of the same logs — real data, no writes to the source.
  */
 
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { cp, mkdir, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,36 @@ const valueOf = (flag) => {
   return i >= 0 && i + 1 < argv.length ? argv[i + 1] : undefined;
 };
 const SESSIONS = valueOf('--sessions') ?? process.env['DSH_SESSIONS'];
+
+/**
+ * One HTTP request with `agent: false`.
+ *
+ * Deliberately not `fetch`: the global agent keeps sockets alive for reuse,
+ * which leaves the process with a closing handle at the end of the run — on
+ * Windows that turns a green suite into a libuv abort (`!(handle->flags &
+ * UV_HANDLE_CLOSING)`) and a non-zero exit code. A one-shot socket has nothing
+ * left to tear down.
+ */
+function request(port, path, method = 'GET', body) {
+  return new Promise((done, fail) => {
+    const req = httpRequest({ host: '127.0.0.1', port, path, method, agent: false }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        done({
+          status: res.statusCode,
+          headers: { 'content-type': res.headers['content-type'], 'cache-control': res.headers['cache-control'] },
+          text,
+          json: () => JSON.parse(text),
+        });
+      });
+    });
+    req.on('error', fail);
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
+}
 
 let passed = 0;
 let failed = 0;
@@ -66,26 +96,25 @@ await new Promise((done) => {
   server.listen(0, '127.0.0.1', done);
 });
 const port = server.address().port;
-const url = `http://127.0.0.1:${String(port)}/plugins/dsh-usage-stats/usage`;
 
 console.log('① HTTP 契约（回环、只读、GET/HEAD）');
 {
-  const response = await fetch(url);
+  const response = await request(port, '/plugins/dsh-usage-stats/usage');
   equal('GET 返回 200', response.status, 200);
-  equal('content-type 是 JSON', response.headers.get('content-type'), 'application/json; charset=utf-8');
-  equal('cache-control: no-store', response.headers.get('cache-control'), 'no-store');
-  const body = await response.json();
+  equal('content-type 是 JSON', response.headers['content-type'], 'application/json; charset=utf-8');
+  equal('cache-control: no-store', response.headers['cache-control'], 'no-store');
+  const body = response.json();
   check('响应里有 cells / scannedSessions / backup',
     Array.isArray(body.cells) && typeof body.scannedSessions === 'number' && typeof body.backup === 'object');
   equal('会话目录为空时读到 0 个日志', body.scannedSessions, 0);
   check('空目录也建立台账', body.backup.status === 'ok', JSON.stringify(body.backup));
 
-  const head = await fetch(url, { method: 'HEAD' });
+  const head = await request(port, '/plugins/dsh-usage-stats/usage', 'HEAD');
   equal('HEAD 返回 200', head.status, 200);
 
-  const post = await fetch(url, { method: 'POST', body: 'x' });
+  const post = await request(port, '/plugins/dsh-usage-stats/usage', 'POST', 'x');
   equal('POST 返回 405', post.status, 405);
-  equal('405 响应是 JSON 错误', (await post.json()).error, 'method not allowed');
+  equal('405 响应是 JSON 错误', post.json().error, 'method not allowed');
 
   /* Non-loopback is refused before any work happens. The address is faked
      because a real remote peer cannot be produced from this machine. */
@@ -101,8 +130,8 @@ console.log('① HTTP 契约（回环、只读、GET/HEAD）');
 
 console.log('\n② 报告缓存（TTL 内多个标签页共享一次扫描）');
 {
-  const first = await (await fetch(url)).json();
-  const second = await (await fetch(url)).json();
+  const first = (await request(port, '/plugins/dsh-usage-stats/usage')).json();
+  const second = (await request(port, '/plugins/dsh-usage-stats/usage')).json();
   equal('TTL 内两次请求的 generatedAt 相同', second.generatedAt, first.generatedAt);
 
   const eager = createUsageService({ dshHome: home, sessionsRoot: join(home, 'sessions'), ttlMs: 0, logger: { warn: () => {} } });
@@ -127,8 +156,11 @@ if (SESSIONS !== undefined) {
   await new Promise((done) => {
     realServer.listen(0, '127.0.0.1', done);
   });
-  const body = await (await fetch(`http://127.0.0.1:${String(realServer.address().port)}/plugins/dsh-usage-stats/usage`)).json();
-  realServer.close();
+  const body = (await request(realServer.address().port, '/plugins/dsh-usage-stats/usage')).json();
+  realServer.closeAllConnections?.();
+  await new Promise((done) => {
+    realServer.close(done);
+  });
 
   equal(`读到 ${String(expected.scanned)} 个会话日志`, body.scannedSessions, expected.scanned);
   equal('路由输出的总 tokens 与独立折叠一致', totalOf(body), expected.total);
@@ -136,11 +168,16 @@ if (SESSIONS !== undefined) {
   check('会话根目录可读', body.sessionsRootReadable === true);
 }
 
-server.close();
+/* Close both the listener and any socket still attached to it, so the process
+   has no closing handle left when it exits. */
+server.closeAllConnections?.();
+await new Promise((done) => {
+  server.close(done);
+});
 await rm(TMP, { recursive: true, force: true });
 
 console.log(`\n${failed === 0 ? '通过' : '失败'}：${String(passed)}/${String(passed + failed)} 项。`);
-process.exit(failed === 0 ? 0 : 1);
+process.exitCode = failed === 0 ? 0 : 1;
 
 /** Call the handler directly, with a fake peer address. */
 async function callHandler(target, { method, remoteAddress }) {

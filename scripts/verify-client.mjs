@@ -344,4 +344,4 @@ console.log('\n⑧ 宿主端返回坏文档时不编造数字');
 }
 
 console.log(`\n${failed === 0 ? '通过' : '失败'}：${String(passed)}/${String(passed + failed)} 项。`);
-process.exit(failed === 0 ? 0 : 1);
+process.exitCode = failed === 0 ? 0 : 1;

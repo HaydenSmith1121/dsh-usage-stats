@@ -309,4 +309,6 @@ if (SESSIONS !== undefined) {
 await rm(TMP, { recursive: true, force: true });
 
 console.log(`\n${failures === 0 ? '通过' : '失败'}：${String(checks - failures)}/${String(checks)} 项一致。`);
-process.exit(failures === 0 ? 0 : 1);
+/* `exitCode` rather than `exit()`: nothing here holds a handle, and letting the
+   loop drain avoids the Windows teardown abort a racing exit can trigger. */
+process.exitCode = failures === 0 ? 0 : 1;

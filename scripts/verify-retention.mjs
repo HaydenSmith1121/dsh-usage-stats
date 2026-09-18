@@ -275,7 +275,7 @@ console.log('① 基线（首次扫描：建立台账）');
 if (!KEEP) await rm(TMP, { recursive: true, force: true });
 
 console.log(`\n${failed === 0 ? '通过' : '失败'}：${String(passed)}/${String(passed + failed)} 项。`);
-process.exit(failed === 0 ? 0 : 1);
+process.exitCode = failed === 0 ? 0 : 1;
 
 async function exists(path) {
   try {

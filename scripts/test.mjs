@@ -58,7 +58,8 @@ for (const suite of suites) {
 console.log(`\n${'─'.repeat(72)}`);
 if (failed === 0) {
   console.log(`全部通过：${String(suites.length)} 个套件。`);
-  process.exit(0);
+  process.exitCode = 0;
+} else {
+  console.error(`失败：${String(failed)}/${String(suites.length)} 个套件。`);
+  process.exitCode = 1;
 }
-console.error(`失败：${String(failed)}/${String(suites.length)} 个套件。`);
-process.exit(1);

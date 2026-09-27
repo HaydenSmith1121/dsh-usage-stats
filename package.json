@@ -1,8 +1,8 @@
 {
   "name": "dsh-usage-stats",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
-  "description": "Harness token-usage report: provider-reported tokens folded out of this harness's session logs, backed by a grow-only per-session ledger so deleting a session no longer deletes its usage",
+  "description": "Harness token-usage report: provider-reported tokens folded out of this harness's session logs across dsh 0.1.6/0.1.7 session-format generations, backed by a grow-only per-session ledger so deleting a session no longer deletes its usage",
   "type": "module",
   "license": "MIT",
   "main": "./lib/index.js",
@@ -31,17 +31,37 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh": ">=0.1.6-alpha.1 <0.2.0-0 || >=0.1.7-alpha.0 <0.2.0-0",
+    "@deepseek-ai/cordis": ">=4.0.2 <5.0.0",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.6-alpha.1 <0.2.0-0 || >=0.1.7-alpha.0 <0.2.0-0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.6-alpha.1 <0.2.0-0 || >=0.1.7-alpha.0 <0.2.0-0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.6-alpha.1 <0.2.0-0 || >=0.1.7-alpha.0 <0.2.0-0",
     "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-locale": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
   },
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:check": "node scripts/build.mjs --check",
     "test": "node scripts/test.mjs",
     "verify:fold": "node scripts/verify-fold.mjs",
+    "verify:compat": "node scripts/verify-compat.mjs",
     "verify:retention": "node scripts/verify-retention.mjs",
     "verify:host": "node scripts/verify-host.mjs",
     "verify:client": "node scripts/verify-client.mjs",
+    "compat:check": "node scripts/compat-check.mjs",
     "pack": "node scripts/build.mjs && npm pack"
   }
 }

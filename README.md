@@ -6,8 +6,11 @@
 **它的重点是「删了也不丢」**：用量按会话逐个备份进一份**只增不减**的台账，
 所以删除会话（`dsh-session-cleanup`、手删目录、归档清理）**不会**把它那部分用量从统计里抹掉。
 
-适配 dsh `0.1.6-alpha.1`。只读会话日志、不持有凭据、不联系 provider、不改模型路由；
-除了自己那份台账，不写任何东西。
+适配 dsh `0.1.6-alpha.1` ～ `0.1.7-rc.2`（**含桌面版 0.1.7-rc.2**）：会话日志的**代际**
+（`0.1.6` 写 v3、`0.1.7` 写 v4，升级后两代可以并存）在磁盘上按代际识别，而不是写死一个文件名；
+页脚会写出这次到底读到了哪几代。逐条实测见 [docs/compatibility.md](./docs/compatibility.md)。
+
+只读会话日志、不持有凭据、不联系 provider、不改模型路由；除了自己那份台账，不写任何东西。
 
 ---
 
@@ -44,8 +47,8 @@ $DSH_HOME/storages/dsh-usage-stats/usage-ledger.json
 | 项 | 值 |
 |---|---|
 | 包名 | `dsh-usage-stats` |
-| 版本 | `0.3.1` |
-| dsh 基线 | `0.1.6-alpha.1` |
+| 版本 | `0.4.0` |
+| dsh 基线 | `0.1.6-alpha.1` ～ `0.1.7-rc.2`（`>=0.1.6-alpha.1 <0.2.0-0 \|\| >=0.1.7-alpha.0 <0.2.0-0`） |
 | 源码 **与分发** | 本仓库（`github.com/HaydenSmith1121/dsh-usage-stats`） |
 
 **方式 A（推荐，也是以后的默认路径）**：装一次插件市场面板（`dsh-plugins-market`），
@@ -55,8 +58,14 @@ $DSH_HOME/storages/dsh-usage-stats/usage-ledger.json
 **方式 B（手动，等价）**：直接从本仓库安装：
 
 ```bash
-dsh plugin --profile web add github:HaydenSmith1121/dsh-usage-stats
+dsh plugin --profile web add github:HaydenSmith1121/dsh-usage-stats        # dsh web
+dsh plugin --profile desktop add github:HaydenSmith1121/dsh-usage-stats    # 桌面版
 ```
+
+> **profile 选哪个**：`dsh web` 用 `web`，**桌面版（DeepSeek Harness 应用）用 `desktop`** ——
+> 桌面版的 profile 里带着 `@deepseek-ai/dsh-web-app` 与它自己的 bundle 清单
+> （`$DSH_HOME/profiles/desktop/package.json`），插件装错 profile 就不会被加载。
+> 不确定时看一眼 `$DSH_HOME/profiles/` 下有哪些目录。
 
 > `lib/`（构建产物）是**提交进仓库的**，所以 git 安装不需要跑任何构建脚本 ——
 > 本包也**故意没有 `prepare`**：有它的话 pnpm 10+ 会以
@@ -66,8 +75,9 @@ dsh plugin --profile web add github:HaydenSmith1121/dsh-usage-stats
 **方式 C（离线 tarball）**：`npm run pack` 自己打一个，或从可信副本取 —— 装法同上，
 把参数换成 `.tgz` 的绝对路径。
 
-**装完重启 `dsh web`**：设置页是客户端半，重启后立刻出现；**读会话日志并维护台账的路由
-由宿主半注册，只在启动时加载** —— 重启之前页面会明说这一点，而不是给一个裸 404。
+**装完重启**（`dsh web`，或直接退出再打开桌面版）：设置页是客户端半，重启后立刻出现；
+**读会话日志并维护台账的路由由宿主半注册，只在启动时加载** —— 重启之前页面会明说这一点，
+而不是给一个裸 404。
 
 ---
 
@@ -91,7 +101,13 @@ dsh plugin --profile web add github:HaydenSmith1121/dsh-usage-stats
 - **总 tokens**，以及构成它的四个桶；
 - **缓存读占比**（有缓存的 harness 上它常远超其它桶，只给裸总数会显得吓人）；
 - 该范围内的**模型调用次数**；
-- 页脚老实交代：读到几个会话日志、几个读不到、**几个已删除会话的用量是从台账保留的**。
+- 页脚老实交代：读到几个会话日志、几个读不到、**几个已删除会话的用量是从台账保留的**，
+  以及**读到的是哪几代会话日志格式**（`· 读到的日志格式：v4 × 12`）。
+
+最后那一项是 0.4.0 加的：harness 给会话日志的**文件名和表头**都打了格式代际，而这个代际
+在发布线之间会动（`0.1.6` 是 v3，`0.1.7` 是 v4）。把读到的代际印出来，
+「它在这台机器上到底读懂了没有」才是一个可以自己核对的事实，而不是一句承诺。
+表头读不出代际时显示「未标版本 × N」—— 不猜。
 
 范围是**含端点的本地日历窗口**且以今天结束，所以它们嵌套：7 天的数字必然包含 1 天的。
 
@@ -123,31 +139,50 @@ dsh plugin --profile web add github:HaydenSmith1121/dsh-usage-stats
 `node scripts/verify-fold.mjs --reference <0.2.0 的 lib/index.js>` 会重新推导每个会话的合计，
 并与**上一个发布的真实产物**逐字节比对（`npm test` 用仓库内冻结的那份参考实现）。
 
+### 磁盘格式：按代际识别，不按版本号
+
+折叠规则在两条发布线上没变，但**读日志这件事**会变，所以它是单独一层
+（`src/usage/format.js`），并且只认磁盘上的事实：
+
+| 代际 | 文件名 | 表头 | fork 继承切点 |
+|---|---|---|---|
+| 0–1 | `session.jsonl[.zstd]` | 扁平，带 `seedLength` | 表头里的 `seedLength` |
+| 2、3、4 | `session.v<N>.jsonl[.zstd]` | 扁平，只有 `isSeeded` | **最后一条带 `inherited: true` 的 `session/end-seed` 事件的 `seq`** |
+
+一个会话目录里有多代文件时（升级后就是如此），读**数值最高**的那一代 —— 与 harness
+自己的选择一致。声明了 `isSeeded` 却找不到继承标记的日志，**记为读不到**，
+而不是猜一个切点：harness 自己的解码器对这种日志同样抛错，而猜错的代价是把父会话的整段
+前缀再计一次费。逐条实测见 [docs/compatibility.md](./docs/compatibility.md)。
+
 ### 已知统计边界（诚实登记）
 
 | 边界 | 说明 |
 |---|---|
 | **标题生成不计入** | `session/title-llm-request` 会消耗 token 但不记录 usage 样本，任何折叠都看不见。**DSH 自己的投影有同样的盲点** |
-| **fork 的会话不向父会话重复计费** | fork 继承的前缀（`inheritedEventCount`）被跳过，因为那些事件保留父会话的时间戳、已经随父会话计过 |
+| **fork 的会话不向父会话重复计费** | 继承前缀（`session/end-seed { inherited: true }` 之前的事件）被跳过，因为那些事件保留父会话的时间戳、已经随父会话计过。0.4.0 之前这一条**实际上没生效**（切点读错了字段），fork 会话的父前缀被重复计费 |
 | **台账启用之前的删除救不回来** | 0.3.0 第一次运行之前就被删掉的会话，日志已经没了，任何实现都无法复原。台账从第一次扫描开始积累 |
 | **删除前最后 ≤30 秒的用量** | 极端情况下（会话在被折叠之前就被删掉）可能来不及记账。巡检间隔是 30 秒，它决定这个窗口 |
 | **读失败会被报出来，不会被藏起来** | 页脚显示读了多少个日志、点名几个读不到；不完整的数字永远不会被当成完整的呈现 |
+| **未知代际的日志** | 事件形状没变时照常折叠（并在页脚标出代际）；连表头都读不出来时按「未 fork」折叠并标为「未标版本」。**没有**为将来可能出现的形状变化做预测 |
 
 ---
 
 ## 六、卸载 / 回滚
 
 ```bash
-dsh plugin --profile web remove dsh-usage-stats
-dsh web        # 重启
+dsh plugin --profile web remove dsh-usage-stats          # dsh web
+dsh plugin --profile desktop remove dsh-usage-stats      # 桌面版
+# 然后重启（dsh web / 重开桌面版）
 ```
 
 卸载**不会**删掉台账：那是你花掉的用量的记录，删不删由你决定。
 想清空统计：删掉 `$DSH_HOME/storages/dsh-usage-stats/`（整目录或那一个 json），
 下次扫描会以当前在场的会话日志为基线重建 —— 报告会随之下降，这是预期行为。
 
-回滚到旧版：`dsh plugin --profile web add <上一版的 tarball>` 即可 ——
+回滚到旧版：`dsh plugin --profile <profile> add <上一版的 tarball>` 即可 ——
 本插件不迁移、不改写任何 DSH 数据，所以降级只是换回旧代码，台账原样留着（旧版不认识它，忽略）。
+**注意 `0.3.1` 及更早的版本在 `0.1.7` 上读不到会话日志**（写死了 v3 文件名），
+回滚到它们只会看到全 0 —— 需要旧版就在 `0.1.6` 那侧用。
 （`dsh-plugin-collection` 停止维护后，0.3.0 及更早的 tarball 不再有公开托管点；
 需要旧版就 `git checkout 0.3.0 的提交 && npm run pack` 自己打一个。）
 
@@ -162,10 +197,13 @@ dsh web        # 重启
 ```bash
 npm run build                 # src/ → lib/（无打包器：宿主半是拷贝，客户端半加外壳）
 npm run build:check           # 校验 lib/ 与 src/ 一致（CI 用）
-npm test                      # 五个套件：构建一致性 / 折叠一致 / 删除保留 / 宿主路由 / 客户端渲染
-npm test -- --sessions <dir>  # 再加上真实会话日志的逐字节比对
+npm test                      # 六个套件：构建一致 / 折叠一致 / 跨版本格式 / 删除保留 / 宿主路由 / 客户端渲染
+npm test -- --sessions <dir>  # 再加上真实会话日志的逐字节比对与代际核对
 
 npm test -- --reference <解包后的 0.2.0 包目录>   # 折叠比对改用真实产物作参考
+
+# 声明面：本包的 peer 范围、客户端 inject、bundle patch 对得上这棵 harness 树吗
+node scripts/compat-check.mjs --tree <放着 @deepseek-ai/* 包的目录>
 ```
 
 目录：
@@ -176,14 +214,17 @@ src/
 ├─ shared/buckets.js        桶运算与日历窗口（构建时内联进客户端半，两边不会漂移）
 ├─ usage/
 │  ├─ decode.js             zstd 多帧 + JSONL 解码
+│  ├─ format.js             会话日志的磁盘格式：代际文件名 + 表头 + fork 切点
 │  ├─ fold.js               折叠算法（复刻 DSH 的 tokenUsage 投影）+ 只增不减的合并
 │  ├─ ledger.js             台账：读取 / 校验 / 原子写入 / 损坏隔离
-│  ├─ scan.js               扫描会话目录（按 mtime+size 记忆化）
-│  ├─ report.js             合并「在场日志」与「台账」，产出报告
+│  ├─ scan.js               扫描会话目录（按代际选日志，按 mtime+size+文件名记忆化）
+│  ├─ report.js             合并「在场日志」与「台账」，产出报告（含读到的日志代际）
 │  └─ host.js               扫描→对账→落盘→报告，外加那条 HTTP 路由
 └─ client.js                客户端半（ModuleLoader 工厂体：设置页）
-scripts/                    构建、五个校验套件、打包
-test/                       合成会话日志构造器 + 冻结的 0.2.0 折叠参考实现
+scripts/                    构建、六个校验套件、声明面审计、打包
+test/                       合成会话日志构造器（逐代真实形状）+ 冻结的 0.2.0 折叠参考实现
+docs/compatibility.md       harness 版本兼容：实测矩阵与边界
+docs/verification.md        验证记录
 ```
 
 `lib/` **是提交进仓库的**：本包也支持 `github:` 直接安装，而 git 安装不会跑我们的构建步骤；

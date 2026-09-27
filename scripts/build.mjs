@@ -37,6 +37,7 @@ const HOST_FILES = [
   'index.js',
   'shared/buckets.js',
   'usage/decode.js',
+  'usage/format.js',
   'usage/fold.js',
   'usage/ledger.js',
   'usage/scan.js',

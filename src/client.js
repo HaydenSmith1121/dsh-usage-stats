@@ -46,6 +46,9 @@ const en = {
   usageAttempts: '{count} model calls',
   usageScope: 'Across {sessions} session logs',
   usageScopeFailed: '\xB7 {failed} unreadable',
+  usageFormats: '\xB7 log formats read: {list}',
+  usageFormatKnown: 'v{version} \xD7 {sessions}',
+  usageFormatUnknown: 'unlabelled \xD7 {sessions}',
   usageRetained: '\xB7 {sessions} deleted sessions kept from the backup ({tokens} tokens)',
   usageUnreadableBackedUp: '\xB7 {sessions} unreadable, served from the backup',
   usageUnverified: '\xB7 {sessions} could not be checked this scan, served from the backup',
@@ -81,6 +84,9 @@ const zh = {
   usageAttempts: '\u5171 {count} \u6B21\u6A21\u578B\u8C03\u7528',
   usageScope: '\u8986\u76D6 {sessions} \u4E2A\u4F1A\u8BDD\u65E5\u5FD7',
   usageScopeFailed: '\xB7 {failed} \u4E2A\u65E0\u6CD5\u8BFB\u53D6',
+  usageFormats: '\xB7 \u8BFB\u5230\u7684\u65E5\u5FD7\u683C\u5F0F\uFF1A{list}',
+  usageFormatKnown: 'v{version} \xD7 {sessions}',
+  usageFormatUnknown: '\u672A\u6807\u7248\u672C \xD7 {sessions}',
   usageRetained: '\xB7 \u5DF2\u5220\u4F1A\u8BDD\u4ECE\u5907\u4EFD\u4FDD\u7559 {sessions} \u4E2A\uFF08{tokens} tokens\uFF09',
   usageUnreadableBackedUp: '\xB7 {sessions} \u4E2A\u8BFB\u4E0D\u5230\uFF0C\u6570\u5B57\u6765\u81EA\u5907\u4EFD',
   usageUnverified: '\xB7 {sessions} \u4E2A\u672C\u6B21\u672A\u80FD\u6838\u5BF9\uFF0C\u6570\u5B57\u6765\u81EA\u5907\u4EFD',
@@ -136,6 +142,26 @@ function parseBackup(value) {
 }
 
 /**
+ * The host's session-log generation tally.
+ *
+ * A row whose `version` is not a number is the honest "folded, but the header
+ * declared no generation" case and is kept as `null`; a row that is malformed
+ * in any other way is dropped, like every other cell here.
+ */
+function parseLogFormats(value) {
+  if (!Array.isArray(value)) return [];
+  const formats = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
+    const sessions = count(entry['sessions']);
+    if (sessions === undefined) continue;
+    const version = count(entry['version']);
+    formats.push({ version: version ?? null, sessions });
+  }
+  return formats;
+}
+
+/**
  * Validate the host's document rather than trusting it.
  *
  * A malformed cell is dropped, not rendered as `NaN`: an invented number is
@@ -179,6 +205,7 @@ function parseUsageReport(value) {
     retainedSessions: count(document_['retainedSessions']) ?? 0,
     retainedTokens: count(document_['retainedTokens']) ?? 0,
     unverifiedSessions: count(document_['unverifiedSessions']) ?? 0,
+    logFormats: parseLogFormats(document_['logFormats']),
     backup: parseBackup(document_['backup'])
   };
 }
@@ -195,6 +222,20 @@ function formatPercent(fraction) {
 
 function formatTime(value) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+}
+
+/**
+ * One `v4 × 12` fragment of the format footnote.
+ *
+ * The point of printing this at all is that the harness tags its session logs
+ * with a generation and the tag moves between releases; showing which one was
+ * read is what turns "it happens to work here" into something a reader can
+ * check on their own machine.
+ */
+function formatLogFormat(row, say) {
+  return row.version === null
+    ? say('usageFormatUnknown', { sessions: formatNumber(row.sessions) })
+    : say('usageFormatKnown', { version: String(row.version), sessions: formatNumber(row.sessions) });
 }
 
 const h = React.createElement;
@@ -319,6 +360,11 @@ function UsageSection({ t }) {
         report.failedSessions > 0 && h(React.Fragment, null,
           ' ',
           say('usageScopeFailed', { failed: formatNumber(report.failedSessions) })),
+        report.logFormats.length > 0 && h(React.Fragment, null,
+          ' ',
+          say('usageFormats', {
+            list: report.logFormats.map((row) => formatLogFormat(row, say)).join(', ')
+          })),
         backup !== undefined && backup.unreadableSessions > 0 && h(React.Fragment, null,
           ' ',
           say('usageUnreadableBackedUp', { sessions: formatNumber(backup.unreadableSessions) })),

@@ -258,6 +258,10 @@ const report = {
   retainedSessions: 1,
   retainedTokens: 3600,
   unverifiedSessions: 0,
+  logFormats: [
+    { version: 3, sessions: 1 },
+    { version: 4, sessions: 2 },
+  ],
   cells: [
     { day: dayKey, provider: 'deepseek', model: 'deepseek-chat', attempts: 4, buckets: { uncachedInputTokens: 300, outputTokens: 60, cacheReadTokens: 2000, cacheWriteTokens: 100 } },
     { day: dayKey, provider: 'deepseek', model: 'deepseek-reasoner', attempts: 2, buckets: { uncachedInputTokens: 1000, outputTokens: 140, cacheReadTokens: 0, cacheWriteTokens: 0 } },
@@ -288,6 +292,10 @@ console.log('\n③ 页面渲染（用真实报告数据驱动组件）');
   check('渲染出调用次数 6', screen.includes(number(6)));
   check('脚注报出读到 3 个日志', screen.includes('覆盖 3 个会话日志'), screen);
   check('脚注报出 1 个读不到', screen.includes('1 个无法读取'));
+  /* The generation tally is what makes "it understood this harness" checkable
+     rather than promised, so it must reach the page, both generations and all. */
+  check('脚注报出读到的日志代际（v3 × 1, v4 × 2）',
+    screen.includes('读到的日志格式') && screen.includes('v3 × 1') && screen.includes('v4 × 2'), screen);
   check('脚注报出被删会话的保留量', screen.includes('已删会话从备份保留 1 个') && screen.includes(number(3600)), screen);
   check('明说「删除会话不会丢用量」', screen.includes('删除会话不会丢用量'));
   check('缓存读占比有渲染', /缓存读取占/.test(screen));

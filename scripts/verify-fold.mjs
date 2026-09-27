@@ -23,9 +23,10 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { decodeSessionLog } from '../lib/usage/decode.js';
+import { decodeSessionLog, parseEvents } from '../lib/usage/decode.js';
 import { foldSession, mergeCells } from '../lib/usage/fold.js';
-import { foldLog, scanSessions, createScanMemo } from '../lib/usage/scan.js';
+import { foldLog, readLogHeader, scanSessions, createScanMemo } from '../lib/usage/scan.js';
+import { selectLog } from '../lib/usage/format.js';
 import * as frozen from '../test/reference-fold.js';
 import { assistantAttempt, assistantMessage, makeLog, retryStarted, usage, withSeq } from '../test/fixtures.mjs';
 
@@ -230,12 +231,14 @@ caseFold({
 });
 
 console.log('\n② 会话日志解码（多帧 zstd / 截断行 / 无表头）');
+console.log('   对照参考实现时用 `legacy` 表头：0.2.0 只认那一种形状；v1/v3/v4 三种真实代际由 scripts/verify-compat.mjs 覆盖。');
 
 const syntheticLogs = [
-  { label: '单帧', bytes: makeLog({ createdAt: DAY, events: [assistantMessage({ turn: 1, step: 1, usage: usage(100, 10), time: DAY })] }) },
+  { label: '单帧', bytes: makeLog({ format: 'legacy', createdAt: DAY, events: [assistantMessage({ turn: 1, step: 1, usage: usage(100, 10), time: DAY })] }) },
   {
     label: '三帧',
     bytes: makeLog({
+      format: 'legacy',
       createdAt: DAY,
       frames: 3,
       events: [
@@ -248,6 +251,7 @@ const syntheticLogs = [
   {
     label: '带 fork 前缀的三帧',
     bytes: makeLog({
+      format: 'legacy',
       createdAt: DAY,
       frames: 2,
       inheritedEventCount: 2,
@@ -258,7 +262,7 @@ const syntheticLogs = [
       ],
     }),
   },
-  { label: '无表头（缺 session 事件）', bytes: makeLog({ createdAt: DAY, omitHeader: true, events: [assistantMessage({ turn: 1, step: 1, usage: usage(42, 4) })] }) },
+  { label: '无表头（缺 session 事件）', bytes: makeLog({ format: 'legacy', createdAt: DAY, omitHeader: true, events: [assistantMessage({ turn: 1, step: 1, usage: usage(42, 4) })] }) },
 ];
 
 for (const item of syntheticLogs) {
@@ -272,38 +276,76 @@ if (SESSIONS !== undefined) {
   let same = 0;
   let total = 0;
   let bytes = 0;
+  const generations = new Map();
   const workspaces = await readdir(SESSIONS);
   for (const workspace of workspaces) {
     const workspacePath = join(SESSIONS, workspace);
     if (!(await stat(workspacePath)).isDirectory()) continue;
     for (const id of await readdir(workspacePath)) {
-      const file = join(workspacePath, id, 'session.v3.jsonl.zstd');
+      /* The generation the harness itself would read, not one fixed filename:
+         an upgraded tree holds `session.v4.jsonl.zstd`, an older one v3, and a
+         migrated session can hold both. */
+      let chosen;
       let raw;
       try {
-        raw = await readFile(file);
+        chosen = selectLog(await readdir(join(workspacePath, id)));
+        if (chosen === undefined) continue;
+        raw = await readFile(join(workspacePath, id, chosen.file));
       } catch {
         continue;
       }
       total++;
       bytes += raw.length;
-      const mine = normalize(foldLog(decodeSessionLog(raw)));
-      const theirs = normalize(reference.module.foldLog(reference.module.decodeSessionLog(raw)));
+      generations.set(chosen.version, (generations.get(chosen.version) ?? 0) + 1);
+
+      /* The *fold* is what the reference is an oracle for, so both sides get the
+         same events and the same cut. The cut itself is the format layer's job
+         (the header moved it between generations) and is verified on its own in
+         `scripts/verify-compat.mjs` — comparing it against 0.2.0 would compare
+         it against the defect this release removes. */
+      const text = decodeSessionLog(raw);
+      const events = parseEvents(text);
+      const header = readLogHeader(text);
+      const mine = normalize(foldSession(events, header.inheritedEventCount, header.createdAt).cells);
+      const theirs = normalize(reference.module.foldSession(events, header.inheritedEventCount, header.createdAt).cells);
       if (mine === theirs) same++;
       else console.error(`  ✗ ${id} 折叠结果不一致\n      new=${mine}\n      ref=${theirs}`);
     }
   }
   report(same === total && total > 0, `真实会话日志 ${String(same)}/${String(total)} 逐字节一致（${String(Math.round(bytes / 1024))} KiB）`);
+  report(total > 0, `按代际选出了日志（代际分布：${[...generations.entries()].map(([v, n]) => `v${String(v)}×${String(n)}`).join(', ')}）`);
 
-  /* The whole-root path, exactly as the plugin runs it: per-session folds merged
-     additively. The reference merges as it scans, so the two must still agree. */
+  /* The whole-root path, exactly as the plugin runs it. The reference scanner
+     cannot read a generation it predates, so the oracle here is the per-session
+     fold the loop above already checked, merged the same way. */
   const mineScan = await scanSessions(SESSIONS, createScanMemo());
   const merged = new Map();
   for (const session of mineScan.sessions) mergeCells(merged, session.cells ?? []);
   const mineAll = normalize([...merged.values()]);
-  const theirsScan = await reference.module.scanSessions(SESSIONS);
-  const theirsAll = normalize(theirsScan.cells);
-  report(mineAll === theirsAll, `整根目录合并结果一致（${String(mineScan.scannedSessions)} 个会话日志）`,
-    `new=${mineAll}\n      ref=${theirsAll}`);
+
+  const expectedMerged = new Map();
+  for (const workspace of workspaces) {
+    const workspacePath = join(SESSIONS, workspace);
+    if (!(await stat(workspacePath)).isDirectory()) continue;
+    for (const id of await readdir(workspacePath)) {
+      let chosen;
+      let raw;
+      try {
+        chosen = selectLog(await readdir(join(workspacePath, id)));
+        if (chosen === undefined) continue;
+        raw = await readFile(join(workspacePath, id, chosen.file));
+      } catch {
+        continue;
+      }
+      const text = decodeSessionLog(raw);
+      const header = readLogHeader(text);
+      mergeCells(expectedMerged, foldSession(parseEvents(text), header.inheritedEventCount, header.createdAt).cells);
+    }
+  }
+  const expectedAll = normalize([...expectedMerged.values()]);
+  report(mineAll === expectedAll, `整根目录合并结果一致（${String(mineScan.scannedSessions)} 个会话日志）`,
+    `scan=${mineAll}\n      per-session=${expectedAll}`);
+  report(mineScan.scannedSessions === total, `扫描读到的会话数与逐个读取一致（${String(mineScan.scannedSessions)}/${String(total)}）`);
 }
 
 await rm(TMP, { recursive: true, force: true });

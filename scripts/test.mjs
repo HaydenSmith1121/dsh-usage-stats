@@ -35,6 +35,7 @@ if (reference !== undefined) passthrough.push('--reference', resolve(reference))
 const suites = [
   { script: 'scripts/build.mjs', args: ['--check'], label: '构建产物与源码一致' },
   { script: 'scripts/verify-fold.mjs', args: passthrough, label: '折叠一致性（数值不许变）' },
+  { script: 'scripts/verify-compat.mjs', args: sessions === undefined ? [] : ['--sessions', resolve(sessions)], label: '跨 harness 版本的会话日志格式' },
   { script: 'scripts/verify-retention.mjs', args: [], label: '删除会话后用量保留' },
   { script: 'scripts/verify-host.mjs', args: sessions === undefined ? [] : ['--sessions', resolve(sessions)], label: '宿主端路由契约' },
   { script: 'scripts/verify-client.mjs', args: [], label: '客户端半（外壳 + 渲染）' },

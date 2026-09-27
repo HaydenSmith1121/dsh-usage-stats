@@ -1,10 +1,14 @@
-# 验证记录（0.3.0 / 0.3.1）
+# 验证记录（0.3.0 / 0.3.1 / 0.4.0）
 
 > **0.3.1 = 0.3.0 + 打包修正，运行时一行没变。**
 > 差异只有两处，都在 tarball 的元数据里：去掉 `prepare`（有它的话 pnpm 10+ 会以
 > `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 拦下 `github:` 安装，逼用户手改 `allowBuilds`），
 > 以及 README 里改成「从本仓库 / 插件市场安装」。`lib/`（宿主半与客户端半的全部代码）
 > 与 0.3.0 **逐字节相同** —— 下面这套证据对 0.3.1 同样成立。
+>
+> **0.4.0 换了读取层，折叠层没动。** 会话日志改为**按代际识别**（文件名与表头都带代际），
+> fork 切点改从 `session/end-seed` 标记推导 —— 见第七节。折叠规则（`src/usage/fold.js`）
+> 与 0.3.1 **逐字节相同**，并由 `verify-fold.mjs` 继续对着 0.2.0 的参考实现逐条比对。
 
 本页记录 **0.3.0 是怎么被验证的**：跑了什么、看到什么、以及哪些边界仍然存在。
 所有数字都是实测输出，不是推断。
@@ -173,4 +177,91 @@ $env:DSH_HOME='<另一个主目录>'
 dsh plugin --profile web add <本包 tarball 绝对路径>
 dsh web --port 3090 --no-open
 # 删除 <另一个主目录>/sessions/<工作区>/<会话 id>/ 之后再看一次用量页
+
+# 4) 声明面：本包对得上这棵 harness 树吗（见第七节）
+node scripts/compat-check.mjs --tree <放着 @deepseek-ai/* 包的目录>
 ```
+
+---
+
+## 七、0.4.0：跨 harness 版本（实测）
+
+0.4.0 修的是**「在 0.1.7 上完全不工作」**：0.3.1 把会话日志的文件名写死成
+`session.v3.jsonl.zstd`，而 `0.1.7` 写的是 `session.v4.jsonl.zstd`。这不是数字偏差，
+是**一个会话都读不到**。
+
+### 7.1 环境
+
+| 项 | 值 |
+|---|---|
+| 目标 harness | 桌面版 **`0.1.7-rc.2`**（`D:\install\Harness\resources\app.asar` 里的 `@deepseek-ai/dsh@0.1.7-rc.2`；Electron `44.0.0`） |
+| 对照 harness | 从 npm 取的真实包树：`@deepseek-ai/*@0.1.6-alpha.1` 与 `@0.1.6-alpha.2` |
+| Node | `24.18.0` |
+| 生产数据 | `DSH_HOME=C:\Users\Administrator\.dsh`，`sessions/` 下 3 个工作区、**6 个会话目录**（验证期间用户还删掉过 6 个，见 7.5） |
+| 验证日期 | 2026-09-27 |
+| 写入面 | 真实主目录**只读**：探针把台账写到临时主目录（已核对 `$DSH_HOME/storages/` 下没有 `dsh-usage-stats`） |
+
+### 7.2 缺陷的直接证据
+
+修复前，扫描真实会话树得到 **0 个日志**（写死的文件名在 `0.1.7` 上不存在）。实测该树的文件名与表头：
+
+```none
+session directories: 6
+file names in session dirs:
+     6 session.v4.jsonl.zstd
+header key shapes (count):
+     6 ["agentPreset","createdAt","cwd","delegationDepth","id","isSeeded","type","version"]
+seeded (forked) sessions: 0
+events with seq but no time: 0
+```
+
+表头是**扁平**的（没有 `data`、没有 `seq`、没有 `inheritedEventCount`）——
+0.3.1 读的 `header.data.inheritedEventCount` 从来没有存在过。
+
+### 7.3 三棵真实包树上的实测矩阵
+
+| | `0.1.6-alpha.1` | `0.1.6-alpha.2` | `0.1.7-rc.2` |
+|---|---|---|---|
+| `SESSION_FORMAT_VERSION` | `3` | `3` | `4` |
+| `CANONICAL_LOG_FILENAME` | `/^session(?:\.v([1-9][0-9]*))?\.jsonl$/u` | 同左 | 同左 |
+| `webServer.register({kind,path,handler})` | 同 | 同 | 同 |
+| fork 切点（`dsh-session-format-v1-to-v2`） | `inheritedEventCount = event.seq`（标记） | 同 | 同 |
+| `compat-check` 结果 | **OK: 12 surfaces** | **OK: 12 surfaces** | **OK: 11 surfaces** |
+
+### 7.4 套件结果（`npm test -- --sessions "C:\Users\Administrator\.dsh\sessions"`）
+
+| 套件 | 结果 | 覆盖什么 |
+|---|---|---|
+| `build.mjs --check` | **10/10 文件一致** | `lib/` 与 `src/` 的构建结果逐字节相同 |
+| `verify-fold.mjs` | **30/30** | 11 条折叠规则（每条比「预期数值」与「0.2.0 参考实现」两遍）+ 4 组合成日志 + **真实日志 6/6 逐字节一致（2919 KiB）** |
+| `verify-compat.mjs` | **69/69** | 代际文件名（含 8 个必须被拒绝的非规范名）、256 种目录组合与独立实现选出同一代、v0/v1/v3/v4 的表头与 fork 切点、明文编码、多代并存、只有 v4 的树不再被读成 0 个会话、真实树上「文件名代际 == 表头代际」 |
+| `verify-retention.mjs` | **45/45** | 删除保留、重启保留、追加、日志缩水、台账损坏、台账不可写、根目录不可读、同名 id 重现、后台巡检、确定性 |
+| `verify-host.mjs` | **18/18** | HTTP 契约 + 真实日志经路由输出 |
+| `verify-client.mjs` | **33/33** | ModuleLoader 外壳、seat 注册面、真实报告数据渲染出的页面文本 |
+
+### 7.5 真实会话树上的数字（只读探针）
+
+```none
+scannedSessions    6
+failedSessions     0
+logFormats         [{"version":4,"sessions":6}]
+sessionsRootReadable true
+backup.status      ok | sessions 6
+cells              1 | days 1
+routes             opencode-go/deepseek-v4.1-flash
+buckets            {"uncachedInputTokens":3881950,"outputTokens":496362,"cacheReadTokens":79243648,"cacheWriteTokens":0,"attempts":528}
+TOTAL tokens       83621960
+cache read share   95%
+```
+
+**页脚现在会印出 `读到的日志格式：v4 × 6`** —— 这一项就是「它读懂了没有」的可核对证据。
+
+### 7.6 仍然存在的边界
+
+| 项 | 说明 |
+|---|---|
+| 没有真实的 seeded（fork/subagent）日志 | 切点规则按 harness 源码、它自己的 README 与**照 `fork.js` 的 `seq: boundary + 1` 造的**合成日志验证；手上这台机器的 6 个会话全是未 fork 的 |
+| `0.1.7-alpha.1/alpha.2/rc.1` 未逐一启动 | 只在 peer 范围与接口差异之内；真机启动过的是 `0.1.7-rc.2`，`0.1.6` 侧验证的是 `alpha.1`/`alpha.2` 的包树 |
+| 桌面版未在 GUI 里点开 | 桌面版与 `dsh web` 共用 `@deepseek-ai/dsh-web-app`（`webServer` + `dsh-client-modules` + 前端），路由与客户端半的机制相同；本页 7.5 的数字来自宿主半的真实扫描，不是 GUI 截图 |
+| 只有 Windows | 同上 |
+| 其余 0.3.x 的边界 | 见第五节，未变 |

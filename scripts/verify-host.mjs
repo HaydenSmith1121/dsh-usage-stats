@@ -104,9 +104,11 @@ console.log('① HTTP 契约（回环、只读、GET/HEAD）');
   equal('content-type 是 JSON', response.headers['content-type'], 'application/json; charset=utf-8');
   equal('cache-control: no-store', response.headers['cache-control'], 'no-store');
   const body = response.json();
-  check('响应里有 cells / scannedSessions / backup',
-    Array.isArray(body.cells) && typeof body.scannedSessions === 'number' && typeof body.backup === 'object');
+  check('响应里有 cells / scannedSessions / backup / logFormats',
+    Array.isArray(body.cells) && typeof body.scannedSessions === 'number'
+    && typeof body.backup === 'object' && Array.isArray(body.logFormats));
   equal('会话目录为空时读到 0 个日志', body.scannedSessions, 0);
+  equal('空目录时没有读到任何日志代际', body.logFormats, []);
   check('空目录也建立台账', body.backup.status === 'ok', JSON.stringify(body.backup));
 
   const head = await request(port, '/plugins/dsh-usage-stats/usage', 'HEAD');
@@ -166,6 +168,11 @@ if (SESSIONS !== undefined) {
   equal('路由输出的总 tokens 与独立折叠一致', totalOf(body), expected.total);
   equal('首次运行（此时台账刚建立）没有已删除会话', body.retainedSessions, 0);
   check('会话根目录可读', body.sessionsRootReadable === true);
+  /* The wire says which session-log generations it read, and the tally has to
+     add up to the logs it says it read — otherwise the footnote is decoration. */
+  const tally = body.logFormats.reduce((sum, row) => sum + row.sessions, 0);
+  equal('日志代际统计之和 == 读到的会话数', tally, body.scannedSessions);
+  check('真实树的代际统计非空', body.logFormats.length > 0, JSON.stringify(body.logFormats));
 }
 
 /* Close both the listener and any socket still attached to it, so the process

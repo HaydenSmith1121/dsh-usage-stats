@@ -226,7 +226,7 @@ events with seq but no time: 0
 | `CANONICAL_LOG_FILENAME` | `/^session(?:\.v([1-9][0-9]*))?\.jsonl$/u` | 同左 | 同左 |
 | `webServer.register({kind,path,handler})` | 同 | 同 | 同 |
 | fork 切点（`dsh-session-format-v1-to-v2`） | `inheritedEventCount = event.seq`（标记） | 同 | 同 |
-| `compat-check` 结果 | **OK: 12 surfaces** | **OK: 12 surfaces** | **OK: 11 surfaces** |
+| `compat-check` 结果 | **OK: 12 surfaces** | **OK: 12 surfaces** | **OK: 12 surfaces** |
 
 ### 7.4 套件结果（`npm test -- --sessions "C:\Users\Administrator\.dsh\sessions"`）
 

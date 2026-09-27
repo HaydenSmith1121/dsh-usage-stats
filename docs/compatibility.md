@@ -173,7 +173,7 @@ node scripts/compat-check.mjs --tree <目录> --runtime 0.1.7-rc.2 --json
 ```none
 0.1.6-alpha.1  OK: 12 surfaces checked
 0.1.6-alpha.2  OK: 12 surfaces checked
-0.1.7-rc.2     OK: 11 surfaces checked
+0.1.7-rc.2     OK: 12 surfaces checked
 ```
 
 ### 5.2 行为面：格式矩阵
